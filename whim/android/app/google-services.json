@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1082957338865",
+    "project_id": "whim-2f2fa",
+    "storage_bucket": "whim-2f2fa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1082957338865:android:44333bd9bc65d6d1c7b150",
+        "android_client_info": {
+          "package_name": "com.whim.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDWn03qIyyZ0RAxiWJtmZFO9N-ymJ4TgdU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

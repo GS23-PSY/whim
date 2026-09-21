@@ -1,0 +1,21 @@
+rules_version = '2';
+
+// 익명 인증만 쓰므로 uid가 곧 소유권이다. 남의 uid 아래는 읽기도 막는다.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 파일럿 지표 요약. 참가자는 자기 것만 쓰고, 운영자는 콘솔에서 컬렉션
+    // 전체를 한 번에 본다(콘솔은 규칙을 거친다).
+    match /stats/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+
+      // pins, outings 등 하위 컬렉션 전부 같은 규칙을 따른다.
+      match /{document=**} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+    }
+  }
+}
