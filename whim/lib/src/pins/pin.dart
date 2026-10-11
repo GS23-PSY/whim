@@ -52,6 +52,7 @@ class Pin {
     this.memo,
     this.visitedAt,
     this.zoneId,
+    this.coupleId,
   });
 
   factory Pin.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -70,6 +71,7 @@ class Pin {
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       visitedAt: (data['visitedAt'] as Timestamp?)?.toDate(),
       zoneId: data['zoneId'] as String?,
+      coupleId: data['coupleId'] as String?,
     );
   }
 
@@ -86,6 +88,9 @@ class Pin {
   final DateTime createdAt;
   final DateTime? visitedAt;
   final String? zoneId;
+  
+  /// 어떤 커플의 장소인지 (예: C01~C08)
+  final String? coupleId;
 
   bool get isVisited => visitedAt != null;
 
@@ -104,5 +109,6 @@ class Pin {
     'createdAt': Timestamp.fromDate(createdAt),
     'visitedAt': visitedAt == null ? null : Timestamp.fromDate(visitedAt!),
     'zoneId': zoneId,
+    'coupleId': coupleId,
   };
 }

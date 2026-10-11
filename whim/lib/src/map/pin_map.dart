@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:kakao_map_sdk/kakao_map_sdk.dart';
 
+import '../common/couple_provider.dart';
 import '../pins/pin.dart';
 import '../pins/pin_repository.dart';
 import '../zones/zone_calculator.dart';
@@ -27,9 +29,10 @@ bool get hasKakaoMapKey => kakaoNativeAppKey.isNotEmpty;
 Future<void> initKakaoMapSdk() async {
   if (!hasKakaoMapKey) return;
   try {
+    // SDK 초기화 전후로 키 해시 자동 생성을 유도하거나 로그를 확인합니다.
     await KakaoMapSdk.instance.initialize(kakaoNativeAppKey);
   } catch (error, stackTrace) {
-    developer.log('카카오맵 SDK 초기화 실패', error: error, stackTrace: stackTrace);
+    developer.log('카카오맵 SDK 초기화 실패: $error', error: error, stackTrace: stackTrace);
   }
 }
 
@@ -76,6 +79,9 @@ class _PinMapState extends ConsumerState<PinMap> {
   /// 감추면 지도에서 사라져 버리므로 그대로 둔다.
   final Set<String> _zonedPinIds = {};
 
+  /// 특정 핀 기준으로 반경 900m 필터링된 핀 ID 목록 (null이면 전체 표시)
+  Set<String>? _filteredPinIds;
+
   int _zoom = _defaultZoom;
 
   /// 카메라는 첫 로딩에서만 전체 핀에 맞춘다. 계속 맞추면 사용자가 지도를
@@ -90,20 +96,63 @@ class _PinMapState extends ConsumerState<PinMap> {
       );
     }
 
-    // 담기로 핀이 늘면 지도에도 바로 올라와야 한다.
+    // 담기로 핀이 늘거나 지도 데이터가 바뀌면 바로 반영
     ref.listen(pinsProvider, (previous, next) {
       final pins = next.value;
       if (pins != null) unawaited(_syncMarkers(pins));
     });
 
-    final pins = ref.watch(pinsProvider).value ?? const <Pin>[];
+    // 커플이 변경되면 900m 필터를 자동으로 해제하여 데이터가 꼬이지 않게 함
+    ref.listen(selectedCoupleProvider, (previous, next) {
+      if (previous != next) {
+        setState(() {
+          _filteredPinIds = null;
+          _cameraFitted = false; // 커플 변경 시 카메라를 새 커플 핀에 맞춤
+        });
+      }
+    });
+
+    // 현재 선택된 커플 ID에 해당하는 핀들만 가져옵니다.
+    final allPins = ref.watch(pinsProvider).value ?? const <Pin>[];
+    final currentCoupleId = ref.watch(selectedCoupleProvider);
+
+    // 커플 번호별 필터링 + 900m 반경 필터링 적용
+    final pins = allPins.where((pin) {
+      if (pin.coupleId != currentCoupleId) return false;
+      if (_filteredPinIds != null && !_filteredPinIds!.contains(pin.id)) {
+        return false;
+      }
+      return true;
+    }).toList();
+
+    // 핀 목록이 바뀔 때 마커를 즉시 동기화하도록 호출
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_controller != null) {
+        unawaited(_syncMarkers(pins));
+      }
+    });
 
     return Stack(
       children: [
         _map(pins),
-        // 첫 실행에는 지도만 덩그러니 떠서 무엇을 해야 하는지 알 수 없다.
-        // 지도를 가리지 않게 위에 한 줄만 올린다.
-        if (pins.isEmpty)
+        // 반경 필터가 걸려있을 때 해제할 수 있는 버튼을 상단에 노출
+        if (_filteredPinIds != null)
+          Positioned(
+            left: 16,
+            top: 16,
+            child: Chip(
+              backgroundColor: Colors.amber[100],
+              label: const Text('900m 반경 필터 적용중'),
+              deleteIcon: const Icon(Icons.close),
+              onDeleted: () {
+                setState(() {
+                  _filteredPinIds = null;
+                  _cameraFitted = false;
+                });
+              },
+            ),
+          ),
+        if (pins.isEmpty && _filteredPinIds == null)
           const Positioned(
             left: 16,
             right: 16,
@@ -117,15 +166,11 @@ class _PinMapState extends ConsumerState<PinMap> {
   Widget _map(List<Pin> pins) {
     return KakaoMap(
       option: KakaoMapOption(
-        // 지도가 뜨는 순간 엉뚱한 곳을 비추지 않도록 가장 최근에 담은 핀을
-        // 중심으로 시작한다. 카메라는 마커를 올린 뒤 전체에 맞춘다.
         position: pins.isEmpty
             ? _defaultCenter
             : LatLng(pins.first.lat, pins.first.lng),
         zoomLevel: _defaultZoom,
       ),
-      // 개별 Poi의 onClick은 호출되지 않는다(기기에서 확인). 클릭은 지도
-      // 위젯으로 한 번에 올라오므로 id를 보고 무엇을 눌렀는지 가린다.
       onPoiClick: _onPoiClick,
       onCameraMoveEnd: (position, gestureType) {
         if (position.zoomLevel == _zoom) return;
@@ -134,8 +179,6 @@ class _PinMapState extends ConsumerState<PinMap> {
       },
       onMapReady: (controller) {
         _controller = controller;
-        // 기본 라벨 레이어는 클릭을 받지 않는다. 켜지 않으면 마커도 구역도
-        // 눌리지 않는다(기기에서 확인).
         unawaited(controller.labelLayer.setClickable(true));
         unawaited(_syncMarkers(pins));
       },
@@ -194,14 +237,12 @@ class _PinMapState extends ConsumerState<PinMap> {
           for (final pin in pins) LatLng(pin.lat, pin.lng),
         ], padding: 64),
       );
-      // 카메라를 코드로 옮길 때는 onCameraMoveEnd가 오지 않을 수 있어 직접 읽는다.
       _zoom = (await controller.getCameraPosition()).zoomLevel;
     }
 
     await _applyZoomVisibility();
   }
 
-  /// 줌에 따라 구역 안 핀의 이름표를 감추거나 되살린다.
   Future<void> _applyZoomVisibility() async {
     final showNames = _zoom >= _pinNameZoom;
     for (final entry in _markers.entries) {
@@ -215,10 +256,6 @@ class _PinMapState extends ConsumerState<PinMap> {
     }
   }
 
-  /// 스펙 S2: 밀집 구역을 색 면으로 강조한다.
-  ///
-  /// 구역은 저장하지 않고 핀이 바뀔 때마다 다시 계산한다(스펙 §5). 핀 100개
-  /// 이하라 계산보다 지도에 다시 그리는 비용이 크므로, 달라진 구역만 손본다.
   Future<void> _syncZones(KakaoMapController controller, List<Pin> pins) async {
     final zones = calculateZones(pins).zones;
     final ids = {for (final zone in zones) zone.id};
@@ -268,20 +305,70 @@ class _PinMapState extends ConsumerState<PinMap> {
     );
   }
 
+  /// 핀 클릭 시 하단 알림에 900m 반경 필터 버튼을 추가합니다.
   void _showPin(Pin pin) {
     if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${pin.name}\n${pin.address}'),
-        duration: const Duration(seconds: 3),
+        content: Row(
+          children: [
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(pin.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text(pin.address, style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber,
+                foregroundColor: Colors.black,
+              ),
+              onPressed: () {
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                setState(() {
+                  final currentCoupleId = ref.read(selectedCoupleProvider);
+                  final allPins = ref.read(pinsProvider).value ?? const <Pin>[];
+                  
+                  // 선택한 핀 기준 반경 900m 이내인 핀만 필터링 세트에 담음
+                  _filteredPinIds = {
+                    for (final p in allPins)
+                      if (p.coupleId == currentCoupleId &&
+                          _calculateDistanceMeters(pin.lat, pin.lng, p.lat, p.lng) <= 900)
+                        p.id
+                  };
+                  _cameraFitted = false; // 필터 결과에 맞춰 카메라 포커스 재조정
+                });
+              },
+              child: const Text('900m 내만'),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 5),
       ),
     );
   }
+
+  double _calculateDistanceMeters(double lat1, double lon1, double lat2, double lon2) {
+    const earthRadius = 6371000.0; // meters
+    final dLat = (lat2 - lat1) * (math.pi / 180.0);
+    final dLon = (lon2 - lon1) * (math.pi / 180.0);
+
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1 * (math.pi / 180.0)) *
+            math.cos(lat2 * (math.pi / 180.0)) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    final c = 2 * math.asin(math.sqrt(a));
+
+    return earthRadius * c;
+  }
 }
 
-/// 아이콘 이미지를 묶지 않는다. 지도에서 필요한 것은 "어디에 무엇을 담아뒀나"라
-/// 점 하나보다 상호명이 그대로 보이는 쪽이 그 일을 한다. 흰 테두리는 어떤
-/// 지도 배경 위에서도 글씨가 읽히게 한다.
 final _markerStyle = PoiStyle(
   textStyle: const [
     PoiTextStyle(
@@ -293,8 +380,6 @@ final _markerStyle = PoiStyle(
   ],
 );
 
-/// 이미 다녀온 곳은 흐리게(스펙 S2). 지도를 열었을 때 다음에 갈 곳이 먼저
-/// 눈에 들어와야 한다.
 final _visitedMarkerStyle = PoiStyle(
   textStyle: const [
     PoiTextStyle(
@@ -306,14 +391,12 @@ final _visitedMarkerStyle = PoiStyle(
   ],
 );
 
-/// 구역은 배경이지 주인공이 아니다. 옅게 깔아 그 위의 상호명이 읽히게 한다.
 final _zoneStyle = PolygonStyle(
   const Color(0x332B6CB0),
   strokeWidth: 2,
   strokeColor: const Color(0x992B6CB0),
 );
 
-/// 구역 이름은 개별 핀보다 크게, 같은 계열의 진한 색으로 둔다.
 final _zoneLabelStyle = PoiStyle(
   textStyle: const [
     PoiTextStyle(

@@ -4,9 +4,11 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/auth/auth.dart';
 import 'src/capture/capture_sheet.dart';
+import 'src/common/couple_provider.dart';
 import 'src/common/failure_reporter.dart';
 import 'src/map/pin_map.dart';
 import 'src/metrics/metrics.dart';
@@ -23,6 +25,9 @@ Future<void> main() async {
 
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+
+  // SharedPreferences 인스턴스를 미리 로드합니다.
+  final prefs = await SharedPreferences.getInstance();
 
   // 파일럿에서 크래시가 조용히 사라지면 담기 완료율이 낮을 때 UX 문제인지
   // 크래시인지 구분할 수 없다. 네이티브 크래시는 SDK가 알아서 잡고, Dart
@@ -52,6 +57,8 @@ Future<void> main() async {
       shareReceiverProvider.overrideWithValue(
         ShareReceiver(initialShare, startedAt),
       ),
+      // SharedPreferences 프로바이더를 오버라이드하여 주입합니다.
+      sharedPreferencesProvider.overrideWithValue(prefs),
     ],
   );
   container.read(pinRepositoryProvider).ensureUserDocument();
@@ -161,8 +168,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       );
     });
 
+    // 현재 선택된 커플 ID를 구독합니다 (C01 ~ C08)
+    final currentCoupleId = ref.watch(selectedCoupleProvider);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('whim')),
+      appBar: AppBar(
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('whim'),
+            // 상단 커플 선택 드롭다운 버튼 추가
+            DropdownButton<String>(
+              value: currentCoupleId,
+              dropdownColor: Colors.white,
+              underline: const SizedBox(),
+              items: ['C01', 'C02', 'C03', 'C04', 'C05', 'C06', 'C07', 'C08']
+                  .map((coupleId) => DropdownMenuItem(
+                        value: coupleId,
+                        child: Text(
+                          coupleId,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ))
+                  .toList(),
+              onChanged: (newCoupleId) {
+                if (newCoupleId != null) {
+                  // 선택한 커플로 상태 변경 및 SharedPreferences 저장 반영
+                  ref.read(selectedCoupleProvider.notifier).setCouple(newCoupleId);
+                }
+              },
+            ),
+          ],
+        ),
+      ),
       // IndexedStack으로 지도를 살려 둔다. 탭을 옮길 때마다 지도를 새로 만들면
       // 로딩이 보이고 SDK 호출도 그만큼 늘어난다.
       body: IndexedStack(index: _tab, children: const [PinMap(), PinList()]),

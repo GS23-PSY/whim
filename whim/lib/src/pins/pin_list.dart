@@ -72,6 +72,30 @@ class _PinTile extends ConsumerWidget {
           pin.category.wire,
           style: Theme.of(context).textTheme.labelSmall,
         ),
+        // 👇 길게 눌렀을 때 삭제 다이얼로그를 띄우고 싶다면 이 부분을 추가하세요
+        onLongPress: () async {
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('핀 삭제'),
+              content: Text('"${pin.name}" 핀을 삭제하시겠습니까?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('취소'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('삭제', style: TextStyle(color: Colors.red)),
+                ),
+              ],
+            ),
+          );
+
+          if (confirmed == true && context.mounted) {
+            _delete(context, ref);
+          }
+        },
       ),
     );
   }

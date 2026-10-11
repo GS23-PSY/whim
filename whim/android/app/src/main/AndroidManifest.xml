@@ -11,6 +11,11 @@
         android:label="whim"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+
+        <!-- 카카오 지도/SDK 인증을 위한 네이티브 앱 키 설정 -->
+        <meta-data
+            android:name="com.kakao.sdk.AppKey"
+            android:value="434630bd9eb028db617f9a090cef2c7a" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

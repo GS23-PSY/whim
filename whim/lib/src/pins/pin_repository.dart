@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/auth.dart';
+import '../common/couple_provider.dart'; // 추가된 couple_provider 임포트
 import '../common/failure_reporter.dart';
 import 'pin.dart';
 
@@ -42,6 +43,13 @@ class PinRepository {
       .snapshots()
       .map((snapshot) => snapshot.docs.map(Pin.fromDoc).toList());
 
+  /// 특정 커플 ID(coupleId)에 해당하는 핀만 필터링해서 가져오는 Stream
+  Stream<List<Pin>> watchByCouple(String coupleId) => _pins
+      .where('coupleId', isEqualTo: coupleId)
+      .orderBy('createdAt', descending: true)
+      .snapshots()
+      .map((snapshot) => snapshot.docs.map(Pin.fromDoc).toList());
+
   /// 담기 완료 시각이 곧 secondsToConfirm의 끝이라, 서버 왕복을 기다리지 않고
   /// 로컬 쓰기가 끝나는 즉시 반환한다. 동기화는 Firestore 캐시가 맡는다.
   String add(Pin pin) {
@@ -55,9 +63,6 @@ class PinRepository {
   }
 
   /// 방문 표시. 스펙 §6의 저장→방문 전환율이 여기서 나온다.
-  ///
-  /// 길 위에서 누르는 버튼이라 서버를 기다리지 않는다. 지하에서 눌러도
-  /// 화면은 바로 바뀌고 동기화는 Firestore 캐시가 맡는다.
   void setVisited(String pinId, {required bool visited}) {
     unawaited(
       _pins
@@ -69,8 +74,7 @@ class PinRepository {
     );
   }
 
-  /// add와 같은 이유로 서버를 기다리지 않는다. 오프라인에서 지워도 목록은
-  /// 즉시 반영되고, 실패하면 스트림이 핀을 되살려 사용자가 알게 된다.
+  /// add와 같은 이유로 서버를 기다리지 않는다.
   void delete(String pinId) {
     unawaited(
       _pins.doc(pinId).delete().catchError((
@@ -101,6 +105,8 @@ final pinRepositoryProvider = Provider<PinRepository>(
   ),
 );
 
-final pinsProvider = StreamProvider<List<Pin>>(
-  (ref) => ref.watch(pinRepositoryProvider).watchAll(),
-);
+/// 현재 선택된 커플 ID에 맞는 핀 목록을 제공하는 StreamProvider
+final pinsProvider = StreamProvider<List<Pin>>((ref) {
+  final selectedCouple = ref.watch(selectedCoupleProvider);
+  return ref.watch(pinRepositoryProvider).watchByCouple(selectedCouple);
+});

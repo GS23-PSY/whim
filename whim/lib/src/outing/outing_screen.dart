@@ -177,7 +177,7 @@ class _OutingScreenState extends ConsumerState<OutingScreen> {
   }
 }
 
-class _OutingPinTile extends StatelessWidget {
+class _OutingPinTile extends ConsumerWidget {
   const _OutingPinTile({
     required this.pin,
     required this.meters,
@@ -189,7 +189,7 @@ class _OutingPinTile extends StatelessWidget {
   final VoidCallback onVisited;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final visited = pin.isVisited;
 
@@ -208,6 +208,34 @@ class _OutingPinTile extends StatelessWidget {
       trailing: visited
           ? Icon(Icons.check_circle, color: theme.colorScheme.primary)
           : TextButton(onPressed: onVisited, child: const Text('다녀왔어요')),
+      onLongPress: () async {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('핀 삭제'),
+            content: Text('"${pin.name}" 핀을 삭제하시겠습니까?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('취소'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('삭제', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+          ),
+        );
+
+        if (confirmed == true) {
+          ref.read(pinRepositoryProvider).delete(pin.id);
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('핀이 삭제되었습니다.')),
+            );
+          }
+        }
+      },
     );
   }
 }
